@@ -227,8 +227,9 @@
   #viewer.busy .stage .spinner { display: block; }
   .navzone {
     position: absolute;
-    top: 0; bottom: 48px;
+    top: 0; bottom: 0;
     width: 22%;
+    z-index: 1;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -258,16 +259,38 @@
   #ann-bar {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 16px 0;
+    gap: 10px;
+    padding: 10px 16px;
     flex-wrap: wrap;
     font-size: 13px;
     color: var(--text-dim);
+    background: var(--panel);
+    border-top: 1px solid var(--border);
   }
+  #ann-bar #ann-status { color: var(--text); }
   #ann-bar button.active { border-color: var(--accent); color: var(--accent); }
-  .classbtn { display: inline-flex; align-items: center; gap: 6px; }
-  .classbtn .dot { width: 10px; height: 10px; border-radius: 50%; }
-  .classbtn.selected { outline: 2px solid var(--accent); }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--panel-hover);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 2px 6px 2px 10px;
+    cursor: pointer;
+    color: var(--text);
+  }
+  .chip.selected { border-color: var(--accent); }
+  .chip .dot { width: 9px; height: 9px; border-radius: 50%; }
+  .chip .x {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 0 4px;
+    font-size: 12px;
+  }
+  .chip .x:hover { color: #fff; }
   .tile .badge {
     position: absolute;
     top: 6px; right: 6px;
@@ -315,17 +338,18 @@
     <div class="spinner"></div>
     <img id="v-img" alt="">
     <svg id="v-overlay" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div id="nav-prev" class="navzone">‹</div>
+    <div id="nav-next" class="navzone">›</div>
   </div>
-  <div id="nav-prev" class="navzone">‹</div>
-  <div id="nav-next" class="navzone">›</div>
   <div id="ann-bar">
-    <button id="v-annotate">Annotate (A)</button>
-    <span id="class-buttons"></span>
-    <button id="v-empty">Mark empty</button>
-    <button id="v-discard" hidden>Discard draft</button>
-    <span id="ann-status"></span>
+    <span>Annotations:</span>
+    <span id="ann-status">none</span>
+    <span id="ann-chips"></span>
     <span class="spacer" style="flex:1"></span>
     <span id="ann-hint"></span>
+    <button id="v-annotate">Edit boxes (A)</button>
+    <button id="v-empty">Mark empty</button>
+    <button id="v-discard" hidden>Discard draft</button>
   </div>
   <div class="bar">
     <span class="title" id="v-title"></span>
@@ -1000,18 +1024,37 @@ function renderBoxes(rubber) {
 }
 
 function updateAnnStatus() {
-  let s;
+  const status = $("ann-status");
   if (viewerBoxes === null) {
-    s = "not annotated";
+    status.textContent = "none";
+  } else if (viewerBoxes.length === 0) {
+    status.textContent = `empty (reviewed) · ${viewerSource}`;
   } else {
-    const n = viewerBoxes.length;
-    s = n === 0 ? "marked empty" : `${n} box${n === 1 ? "" : "es"}`;
-    s += ` · ${viewerSource}`;
+    status.textContent = `${viewerBoxes.length} × animal · ${viewerSource}`;
   }
-  $("ann-status").textContent = s;
+  const chips = $("ann-chips");
+  chips.innerHTML = "";
+  (viewerBoxes || []).forEach((b, i) => {
+    const cls = CLASSES.find(c => c.name === b.label) || CLASSES[0];
+    const chip = document.createElement("span");
+    chip.className = "chip" + (i === selectedBox ? " selected" : "");
+    chip.innerHTML = `<span class="dot"></span><span class="lbl"></span><button class="x" title="remove">✕</button>`;
+    chip.querySelector(".dot").style.background = cls.color;
+    chip.querySelector(".lbl").textContent = b.label;
+    chip.onclick = e => {
+      if (e.target.classList.contains("x")) {
+        selectedBox = i;
+        deleteSelected();
+      } else {
+        selectedBox = selectedBox === i ? -1 : i;
+        renderBoxes();
+      }
+    };
+    chips.appendChild(chip);
+  });
   $("v-discard").hidden = viewerSource !== "draft";
   $("ann-hint").textContent = annotateMode
-    ? "drag to draw · click box to select · Del removes"
+    ? "drag on the image to draw a box · Del removes selected"
     : "";
 }
 
@@ -1021,16 +1064,6 @@ function toggleAnnotate() {
   $("v-annotate").classList.toggle("active", annotateMode);
   if (!annotateMode) { selectedBox = -1; renderBoxes(); }
   updateAnnStatus();
-}
-
-function setClass(i) {
-  currentClass = i;
-  document.querySelectorAll(".classbtn").forEach((b, j) =>
-    b.classList.toggle("selected", j === i));
-  if (selectedBox >= 0 && viewerBoxes) {
-    viewerBoxes[selectedBox].label = CLASSES[i].name;
-    commitBoxes();
-  }
 }
 
 function deleteSelected() {
@@ -1107,15 +1140,6 @@ $("v-discard").onclick = () => {
   saveDrafts();
   loadAnnotations(folder, image);
 };
-CLASSES.forEach((c, i) => {
-  const b = document.createElement("button");
-  b.className = "classbtn" + (i === 0 ? " selected" : "");
-  b.innerHTML = `<span class="dot"></span>${c.name}`;
-  b.querySelector(".dot").style.background = c.color;
-  b.onclick = () => setClass(i);
-  $("class-buttons").appendChild(b);
-});
-
 /* ----- zip export (STORE format, no dependencies) ----- */
 /* ZIP-LIB-START */
 const CRC_TABLE = (() => {
@@ -1223,7 +1247,9 @@ $("v-close").onclick = closeViewer;
 $("nav-prev").onclick = () => stepViewer(-1);
 $("nav-next").onclick = () => stepViewer(1);
 vStage.onclick = e => {
-  if (e.target !== vImg && !e.target.closest("#v-overlay")) closeViewer();
+  if (e.target !== vImg && !e.target.closest("#v-overlay") && !e.target.closest(".navzone")) {
+    closeViewer();
+  }
 };
 
 /* =============================================================
@@ -1233,8 +1259,6 @@ document.addEventListener("keydown", e => {
   if (state.viewerIdx >= 0) {
     if (e.key === "a" || e.key === "A") return toggleAnnotate();
     if (annotateMode) {
-      const ci = parseInt(e.key, 10) - 1;
-      if (ci >= 0 && ci < CLASSES.length) return setClass(ci);
       if (e.key === "Delete" || e.key === "Backspace") return deleteSelected();
       if (e.key === "Escape") return toggleAnnotate();
     }
