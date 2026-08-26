@@ -41,27 +41,30 @@ viewer with zoom, pan, and keyboard navigation.
 
 ## Adding new images
 
-1. Drop your capture folders into place, e.g. `2026/Team_7/capture_1/`.
-2. Rebuild the index: `python3 run_index.py`
-   (zero dependencies — any Python 3 will do)
-3. Commit the new folders **and** the updated `index.json`.
+Drop your capture folders into place following the convention, e.g.
+`2026/Team_7/capture_1/`, commit, and push (or open a pull request if you
+don't have push access — contributions are welcome). That's it: on every
+push to `main`, a GitHub Actions workflow rebuilds the index, regenerates
+thumbnails, and redeploys the site. No manual indexing step.
 
-The index is recomputed from scratch each run, so renames and deletions are
-picked up too.
+For local browsing, `run_index.py --serve` rebuilds the index automatically
+on startup, so new images show up there too without extra steps.
 
-## Hosting on GitHub Pages
+## How publishing works
 
-Everything is static, so Pages can serve the whole thing: enable Pages for
-the repository (deploy from the `main` branch, root folder) and the gallery
-is live at the Pages URL. Just remember that `index.json` must be rebuilt and
-committed whenever images change — Pages serves whatever is in the repo.
+The originals total gigabytes, so the published site doesn't contain them.
+The Pages workflow ([.github/workflows/pages.yml](.github/workflows/pages.yml))
+builds a small static site instead:
 
-## Roadmap
+- `run_index.py` maps every image into `index.json`
+- `make_thumbs.py` renders a ~20 KB thumbnail per image (the only step with
+  a dependency, Pillow, installed in CI only)
+- the gallery, index, and thumbnails (a few MB in total) are deployed to Pages
 
-- **Annotation tool** — the next step is a lightweight annotation tool in the
-  same zero-dependency spirit, so images can be labeled (species, bounding
-  boxes) and the collection can evolve from "example imagery" into a real,
-  usable detection dataset.
+On the published site, the grid shows the thumbnails; opening an image loads
+the full-resolution original straight from the git repository via
+`raw.githubusercontent.com`. Locally, the gallery serves your actual files
+directly and thumbnails are never needed.
 
 ## License
 

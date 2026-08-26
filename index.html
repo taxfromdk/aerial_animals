@@ -290,6 +290,7 @@
     <span class="title" id="v-title"></span>
     <span id="v-pos"></span>
     <span id="v-zoom"></span>
+    <a id="v-orig" href="#" target="_blank" style="color:var(--accent);text-decoration:none">original ↗</a>
     <div class="spacer"></div>
     <span id="v-hint"></span>
     <button id="v-close">Close</button>
@@ -311,6 +312,8 @@ const state = {
   page: 0,
   pageSize: 24,
   viewerIdx: -1,     // index into current folder's images, -1 = closed
+  thumbBase: null,   // set on the published site (CI-built thumbnails)
+  sourceBase: null,  // set on the published site (raw git URLs for originals)
 };
 
 /* =============================================================
@@ -355,9 +358,19 @@ function pumpQueue() {
 /* =============================================================
    Index & folder tree
    ============================================================= */
-function imgUrl(folder, name) {
+function encPath(folder, name) {
   const dir = folder.path === "" ? "" : folder.path.split("/").map(encodeURIComponent).join("/") + "/";
   return dir + encodeURIComponent(name);
+}
+
+/* Grid previews: small thumbnails on the published site, originals locally */
+function thumbUrl(folder, name) {
+  return state.thumbBase ? state.thumbBase + encPath(folder, name) + ".jpg" : encPath(folder, name);
+}
+
+/* Full-size viewer: raw files from the git repo on the published site */
+function fullUrl(folder, name) {
+  return state.sourceBase ? state.sourceBase + encPath(folder, name) : encPath(folder, name);
 }
 
 function buildTree(index) {
@@ -460,9 +473,7 @@ const INTRO_HTML = `
      to build more interesting detectors.</p>
   <p>Pick a year below, then a team and a capture session, to browse the raw images.
      Previews load only when you hover them, so feel free to explore.</p>
-  <p>Next step on the roadmap is an <strong>annotation tool</strong>, so the collection can
-     grow labels and evolve into a real detection dataset. Contributions of new capture
-     folders are welcome — see the
+  <p>Contributions of new capture folders are welcome — see the
      <a href="https://github.com/taxfromdk/aerial_animals" style="color:var(--accent)">repository</a>
      for how.</p>
   </div>`;
@@ -505,7 +516,7 @@ function formatSize(bytes) {
 const HOVER_DELAY_MS = 200;
 
 function makeTile(folder, image, absoluteIdx) {
-  const url = imgUrl(folder, image.name);
+  const url = thumbUrl(folder, image.name);
   const tile = document.createElement("div");
   tile.className = "tile";
   tile.innerHTML = `
@@ -540,8 +551,10 @@ function makeTile(folder, image, absoluteIdx) {
   tile.dataset.load = "";       // marker for the "load page" button
   tile._startLoad = startLoad;
 
-  if (loadedSet.has(url)) {
-    startLoad();                // seen before: browser cache makes this free
+  if (state.thumbBase || loadedSet.has(url)) {
+    // thumbnails are tiny — load them all (still throttled by the queue);
+    // hover-loading is only for local browsing where tiles are the originals
+    startLoad();
   } else {
     let timer = null;
     tile.addEventListener("mouseenter", () => {
@@ -618,7 +631,7 @@ function closeViewer() {
 function showViewerImage() {
   const folder = state.node.folder;
   const image = folder.images[state.viewerIdx];
-  const url = imgUrl(folder, image.name);
+  const url = fullUrl(folder, image.name);
   resetZoom();
   $("viewer").classList.add("busy");
   vImg.removeAttribute("src");
@@ -631,6 +644,7 @@ function showViewerImage() {
     });
   };
   vImg.src = url;
+  $("v-orig").href = url;
   $("v-title").textContent = (folder.path ? folder.path + "/" : "") + image.name;
   $("v-pos").textContent = `${state.viewerIdx + 1} / ${folder.images.length} · ${formatSize(image.size)}`;
 }
@@ -764,6 +778,12 @@ fetch("index.json", { cache: "no-store" })
   })
   .then(index => {
     state.index = index;
+    state.thumbBase = index.thumb_base || null;
+    state.sourceBase = index.source_base || null;
+    if (state.thumbBase) {
+      $("load-page").hidden = true;
+      document.querySelector("#toolbar .hint").textContent = "Click an image to view full size";
+    }
     state.tree = buildTree(index);
     const generated = new Date(index.generated).toLocaleString();
     $("stats").textContent =

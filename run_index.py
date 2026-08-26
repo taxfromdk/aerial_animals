@@ -6,6 +6,10 @@ Usage:
     python3 run_index.py --serve    # regenerate, then serve the gallery on http://localhost:8000
     python3 run_index.py --serve 9090
 
+CI options (used by the GitHub Pages workflow):
+    --thumb-base URL    gallery loads grid previews from URL<path>.jpg thumbnails
+    --source-base URL   gallery loads full-size images from URL<path>
+
 Re-run whenever folders or images are added; the index is recomputed from
 scratch on every run. Zero dependencies (Python 3 standard library only).
 """
@@ -63,16 +67,27 @@ def scan(root: Path) -> dict:
     }
 
 
+def get_flag(name: str):
+    if name in sys.argv:
+        i = sys.argv.index(name)
+        if i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+    return None
+
+
 def main():
     index = scan(ROOT)
+    for key, flag in (("thumb_base", "--thumb-base"), ("source_base", "--source-base")):
+        value = get_flag(flag)
+        if value:
+            index[key] = value
     INDEX_FILE.write_text(json.dumps(index, indent=1) + "\n", encoding="utf-8")
     print(f"index.json: {index['total_images']} images in {index['total_folders']} folders")
 
     if "--serve" in sys.argv:
         import http.server
 
-        args = [a for a in sys.argv[1:] if a != "--serve"]
-        port = int(args[0]) if args else 8000
+        port = next((int(a) for a in sys.argv[1:] if a.isdigit()), 8000)
 
         class Handler(http.server.SimpleHTTPRequestHandler):
             def __init__(self, *a, **kw):
