@@ -69,11 +69,17 @@ directly and thumbnails are never needed.
 ## Annotations
 
 Images can be annotated with bounding boxes directly in the gallery — no
-tools to install. Open an image, press **A** (or the *Annotate* button),
-and drag to draw a box. Click a box to select it, **Delete** removes it,
-and *Mark empty* records "reviewed, nothing in this image". Boxes are always
-rendered live from the annotation data as an overlay — never baked into the
-images or thumbnails.
+tools to install. Open an image and simply drag to draw a box. Click a box
+(or its chip in the bar below the image) to select it, **Delete** removes
+it, and *Mark empty* records "reviewed, nothing in this image". When zoomed
+in, **Shift+drag** (or the arrow keys) pans; plain drag always draws. Boxes
+are always rendered live from the annotation data as an overlay — never
+baked into the images or thumbnails.
+
+In the folder grid, tile borders show annotation status: green = has boxes,
+blue = reviewed empty, dashed = browser draft not yet committed, and a
+thick dashed border means your draft will overwrite an existing committed
+file when merged.
 
 Edits are saved instantly as drafts in your browser (localStorage). To get
 them into the shared dataset:
