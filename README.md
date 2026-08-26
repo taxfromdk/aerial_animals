@@ -92,8 +92,9 @@ file when merged.
 Edits are saved instantly as drafts in your browser (localStorage). To get
 them into the shared dataset:
 
-1. Click **Download annotations** in the folder toolbar — you get
-   `annotations.zip` whose folder structure mirrors this repository.
+1. Click **Download annotations** in the header (shown on every page below
+   Home) — you get a zip of the drafts under the folder you are browsing,
+   with a folder structure mirroring this repository.
 2. Unzip it at the repository root so each `<image>.json` lands next to its
    image.
 3. Commit and push, or open a pull request.

@@ -45,6 +45,7 @@
   #crumbs .sep { color: var(--text-dim); }
   #crumbs .here { font-weight: 600; padding: 4px 8px; }
   #stats { margin-left: auto; color: var(--text-dim); font-size: 12px; text-align: right; }
+  #header .hint { color: var(--text-dim); font-size: 12px; }
   #repo-link {
     color: var(--accent);
     text-decoration: none;
@@ -311,6 +312,9 @@
 <div id="header">
   <div id="crumbs"></div>
   <div id="stats">Loading index…</div>
+  <span class="hint" id="draft-info"></span>
+  <button id="dl-zip" hidden>Download annotations</button>
+  <button id="clear-drafts" hidden>Discard all drafts in localStorage</button>
   <a id="repo-link" href="https://github.com/taxfromdk/aerial_animals">View on GitHub ↗</a>
 </div>
 
@@ -331,10 +335,6 @@
   <div class="spacer"></div>
   <span class="hint">border: <span style="color:#4caf50">green</span> = animals ·
     <span style="color:var(--accent)">blue</span> = empty · dashed = draft · thick = draft over repo</span>
-  <span class="hint" id="draft-info"></span>
-  <button id="dl-zip" hidden>Download annotations</button>
-  <button id="clear-drafts" hidden>Discard all drafts</button>
-  <span class="hint">Hover a tile to load its preview · click to view full size</span>
 </div>
 
 <div id="content"></div>
@@ -538,6 +538,7 @@ function onHashChange() {
    ============================================================= */
 function render() {
   renderCrumbs();
+  updateDraftInfo();
   const node = state.node;
   if (node.children.size > 0) {
     $("toolbar").hidden = true;
@@ -956,11 +957,15 @@ function saveDrafts() {
 }
 
 function updateDraftInfo() {
-  const n = Object.keys(drafts).length;
+  const total = Object.keys(drafts).length;
+  const node = state.node;
+  const atRoot = !node || !node.parent;
+  const scoped = node && !atRoot ? draftCountFor(node) : 0;
   $("draft-info").textContent =
-    n ? `${n} draft annotation file${n > 1 ? "s" : ""} in this browser` : "";
-  $("dl-zip").hidden = !n;
-  $("clear-drafts").hidden = !n;
+    total ? `${total} draft${total > 1 ? "s" : ""} in this browser` : "";
+  $("dl-zip").hidden = atRoot || !scoped;
+  $("dl-zip").textContent = `Download annotations (${scoped})`;
+  $("clear-drafts").hidden = atRoot || !total;
 }
 
 const repoAnnCache = new Map();
@@ -1394,15 +1399,17 @@ function makeZip(entries) {
 /* ZIP-LIB-END */
 
 $("dl-zip").onclick = () => {
+  // scoped to the folder subtree being browsed
+  const prefix = state.node.path.length ? state.node.path.join("/") + "/" : "";
   const enc = new TextEncoder();
-  const entries = Object.keys(drafts).sort().map(rp => ({
+  const entries = Object.keys(drafts).filter(k => k.startsWith(prefix)).sort().map(rp => ({
     name: rp + ".json",
     data: enc.encode(JSON.stringify(drafts[rp].boxes, null, 1) + "\n"),
   }));
   if (!entries.length) return;
   const a = document.createElement("a");
   a.href = URL.createObjectURL(makeZip(entries));
-  a.download = "annotations.zip";
+  a.download = "annotations" + (prefix ? "-" + state.node.path.join("-") : "") + ".zip";
   a.click();
   URL.revokeObjectURL(a.href);
 };
@@ -1484,10 +1491,7 @@ fetch("index.json", { cache: "no-store" })
     state.index = index;
     state.thumbBase = index.thumb_base || null;
     state.sourceBase = index.source_base || null;
-    if (state.thumbBase) {
-      $("load-page").hidden = true;
-      document.querySelector("#toolbar .hint").textContent = "Click an image to view full size";
-    }
+    if (state.thumbBase) $("load-page").hidden = true;
     state.tree = buildTree(index);
     const generated = new Date(index.generated).toLocaleString();
     $("stats").textContent =
