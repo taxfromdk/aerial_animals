@@ -291,6 +291,7 @@
     <span id="v-pos"></span>
     <span id="v-zoom"></span>
     <a id="v-orig" href="#" target="_blank" style="color:var(--accent);text-decoration:none">original ↗</a>
+    <button id="v-share">Copy link</button>
     <div class="spacer"></div>
     <span id="v-hint"></span>
     <button id="v-close">Close</button>
@@ -394,28 +395,47 @@ function buildTree(index) {
   return root;
 }
 
-function findNode(pathParts) {
+/* Resolve hash path segments to a tree node; the last segment may name
+   an image inside that folder (deep link to the viewer). */
+function resolveHash(parts) {
   let node = state.tree;
-  for (const part of pathParts) {
-    node = node.children.get(part);
-    if (!node) return state.tree;
+  for (let i = 0; i < parts.length; i++) {
+    const next = node.children.get(parts[i]);
+    if (next) { node = next; continue; }
+    if (i === parts.length - 1 && node.folder) {
+      const idx = node.folder.images.findIndex(im => im.name === parts[i]);
+      if (idx >= 0) return { node, imageIdx: idx };
+    }
+    return { node: state.tree, imageIdx: -1 };
   }
-  return node;
+  return { node, imageIdx: -1 };
 }
 
 /* =============================================================
-   Navigation (hash-based, so back/forward buttons work)
+   Navigation (hash-based, so back/forward buttons work and
+   folder/image links — including zoom state — are shareable)
    ============================================================= */
 function navigate(node) {
   location.hash = "/" + node.path.map(encodeURIComponent).join("/");
 }
 
 function onHashChange() {
-  const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
-  state.node = findNode(parts);
-  state.page = 0;
-  closeViewer();
+  const [pathPart, query] = location.hash.replace(/^#\/?/, "").split("?");
+  const parts = pathPart.split("/").filter(Boolean).map(decodeURIComponent);
+  const { node, imageIdx } = resolveHash(parts);
+  state.node = node;
+  state.page = imageIdx >= 0 ? Math.floor(imageIdx / state.pageSize) : 0;
+  if (imageIdx < 0) closeViewer();
   render();
+  if (imageIdx >= 0) {
+    const params = new URLSearchParams(query || "");
+    pendingView = {
+      z: parseFloat(params.get("z")) || 1,
+      x: parseFloat(params.get("x")) || 0,
+      y: parseFloat(params.get("y")) || 0,
+    };
+    openViewer(imageIdx);
+  }
 }
 
 /* =============================================================
@@ -613,7 +633,27 @@ $("load-page").onclick = () => {
 const vImg = $("v-img");
 const vStage = document.querySelector("#viewer .stage");
 let zoom = 1, panX = 0, panY = 0;
+let pendingView = null;   // zoom/pan from a shared deep link, applied on image load
 const MIN_ZOOM = 1, MAX_ZOOM = 12, PAN_STEP = 120;
+
+/* Keep the address bar in sync with the open image and its zoom state,
+   so the current view can be shared by copying the URL. replaceState
+   avoids flooding the browser history. */
+function viewerHash() {
+  const folder = state.node.folder;
+  const image = folder.images[state.viewerIdx];
+  let h = "#/" + [...state.node.path, image.name].map(encodeURIComponent).join("/");
+  if (zoom > 1) h += `?z=${zoom.toFixed(2)}&x=${Math.round(panX)}&y=${Math.round(panY)}`;
+  return h;
+}
+
+let urlSyncTimer = null;
+function scheduleUrlSync() {
+  clearTimeout(urlSyncTimer);
+  urlSyncTimer = setTimeout(() => {
+    if (state.viewerIdx >= 0) history.replaceState(null, "", viewerHash());
+  }, 200);
+}
 
 function openViewer(idx) {
   state.viewerIdx = idx;
@@ -622,10 +662,16 @@ function openViewer(idx) {
 }
 
 function closeViewer() {
+  const wasOpen = state.viewerIdx >= 0;
+  state.viewerIdx = -1;
+  clearTimeout(urlSyncTimer);
   resetZoom();
   $("viewer").classList.remove("open");
   vImg.removeAttribute("src");
-  state.viewerIdx = -1;
+  if (wasOpen) {
+    history.replaceState(null, "",
+      "#/" + state.node.path.map(encodeURIComponent).join("/"));
+  }
 }
 
 function showViewerImage() {
@@ -638,6 +684,14 @@ function showViewerImage() {
   vImg.onload = () => {
     $("viewer").classList.remove("busy");
     markLoaded(url);
+    if (pendingView) {
+      zoom = Math.min(Math.max(pendingView.z, MIN_ZOOM), MAX_ZOOM);
+      panX = pendingView.x;
+      panY = pendingView.y;
+      pendingView = null;
+      clampPan();
+      applyTransform();
+    }
     // reflect it in the grid if that tile is on screen as a placeholder
     document.querySelectorAll(".tile[data-load]:not(.loaded)").forEach(t => {
       if (t.querySelector(".fname").textContent === image.name) t._startLoad();
@@ -647,6 +701,7 @@ function showViewerImage() {
   $("v-orig").href = url;
   $("v-title").textContent = (folder.path ? folder.path + "/" : "") + image.name;
   $("v-pos").textContent = `${state.viewerIdx + 1} / ${folder.images.length} · ${formatSize(image.size)}`;
+  scheduleUrlSync();
 }
 
 function stepViewer(delta) {
@@ -666,6 +721,7 @@ function applyTransform() {
   vImg.style.transform = zoom === 1 ? "" : `translate(${panX}px, ${panY}px) scale(${zoom})`;
   $("viewer").classList.toggle("zoomed", zoom > 1);
   $("v-zoom").textContent = zoom > 1 ? `${zoom.toFixed(1)}×` : "";
+  scheduleUrlSync();
   $("v-hint").textContent = zoom > 1
     ? "drag/arrows pan · scroll zoom · 0 fit · PgUp PgDn navigate · Esc fit"
     : "← → navigate · scroll/double-click zoom · Esc close";
@@ -728,6 +784,19 @@ vImg.addEventListener("pointerup", e => {
   vImg.classList.remove("dragging");
   vImg.releasePointerCapture(e.pointerId);
 });
+
+$("v-share").onclick = async () => {
+  if (state.viewerIdx < 0) return;
+  history.replaceState(null, "", viewerHash());   // make sure zoom state is current
+  const url = location.href;
+  try {
+    await navigator.clipboard.writeText(url);
+    $("v-share").textContent = "Copied!";
+    setTimeout(() => { $("v-share").textContent = "Copy link"; }, 1500);
+  } catch {
+    window.prompt("Copy this link:", url);
+  }
+};
 
 $("v-close").onclick = closeViewer;
 $("nav-prev").onclick = () => stepViewer(-1);
