@@ -74,7 +74,8 @@ Images can be annotated with bounding boxes directly in the gallery — no
 tools to install. Open an image and simply drag to draw a box — crosshair
 guide lines follow the cursor to make sizing easy. Drag an existing box to
 reposition it. Click a box (or its chip in the bar below the image) to
-select it, and **Delete** removes it. *Mark empty* — or just pressing
+select it — corner handles then appear for resizing — and **Delete**
+removes it. *Mark empty* — or just pressing
 **Space** — records "reviewed, nothing in this image" and jumps straight to
 the next image, so sweeping a mostly-empty folder is one keypress per
 frame. Navigate with the **Prev/Next** buttons or arrow keys; neighboring
