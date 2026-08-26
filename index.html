@@ -45,6 +45,16 @@
   #crumbs .sep { color: var(--text-dim); }
   #crumbs .here { font-weight: 600; padding: 4px 8px; }
   #stats { margin-left: auto; color: var(--text-dim); font-size: 12px; text-align: right; }
+  #repo-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 13px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 12px;
+    white-space: nowrap;
+  }
+  #repo-link:hover { background: var(--panel-hover); border-color: var(--accent); }
 
   /* ---------- Toolbar (grid view only) ---------- */
   #toolbar {
@@ -247,6 +257,7 @@
 <div id="header">
   <div id="crumbs"></div>
   <div id="stats">Loading index…</div>
+  <a id="repo-link" href="https://github.com/taxfromdk/aerial_animals">View on GitHub ↗</a>
 </div>
 
 <div id="toolbar" hidden>
