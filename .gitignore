@@ -3,3 +3,6 @@ index.json
 
 # CI site build output
 _site/
+
+# python bytecode
+__pycache__/
