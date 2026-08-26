@@ -24,8 +24,10 @@ year/team/capture convention is what makes the collection navigable, though.
 ## Browsing the gallery
 
 The repo is its own viewer. `index.html` is a static gallery that reads
-`index.json` (a machine-generated map of every image) and displays the actual
-image files — no copies, no generated thumbnails.
+`index.json` (a machine-generated map of every image). Browsed locally it
+displays your actual image files; the published site shows small generated
+thumbnails in the grid and fetches full-resolution originals from the
+repository only when you open one.
 
 To browse locally:
 
@@ -34,10 +36,10 @@ python3 run_index.py --serve        # builds index.json, serves on :8000
 python3 run_index.py --serve 9090   # ... or another port
 ```
 
-The gallery is deliberately gentle on the server: image tiles start as
-placeholders and only load when you hover them (or press *Load previews on
-this page*), at most a few requests at a time. Click a tile for a full-size
-viewer with zoom, pan, and keyboard navigation.
+The gallery is deliberately gentle on the server: image requests go through
+a small queue (a few at a time), and the next/previous images preload only
+after the current one is shown. Click a tile for a full-size viewer with
+zoom, pan, keyboard navigation, and annotation.
 
 ## Adding new images
 

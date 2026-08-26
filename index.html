@@ -167,9 +167,11 @@
      dashed = draft in this browser (not committed yet) */
   .tile.ann-boxes, .tile.ann-boxes:hover { border: 2px solid #4caf50; }
   .tile.ann-empty, .tile.ann-empty:hover { border: 2px solid var(--accent); }
-  .tile.ann-draft { border-style: dashed; }
-  .tile.ann-conflict { border-width: 4px; }   /* draft shadows a committed file */
   .tile.ann-boxes:hover, .tile.ann-empty:hover { filter: brightness(1.15); }
+  /* draft styling must survive the :hover color rules above */
+  .tile.ann-draft, .tile.ann-draft:hover { border-style: dashed; }
+  /* draft shadows a committed file: THICK dashed */
+  .tile.ann-conflict, .tile.ann-conflict:hover { border-width: 4px; }
   .tile .icon { font-size: 26px; opacity: .7; }
   .tile .fname { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tile .fsize { font-size: 11px; opacity: .7; }
