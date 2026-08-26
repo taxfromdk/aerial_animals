@@ -23,7 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 INDEX_FILE = ROOT / "index.json"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".avif"}
-SKIP_DIRS = {".git", ".svn", "__pycache__", "node_modules"}
+SKIP_DIRS = {".git", ".svn", "__pycache__", "node_modules", "_site"}
 
 
 def natural_key(name: str):
