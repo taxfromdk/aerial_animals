@@ -139,6 +139,21 @@
   }
   .prog > div { height: 100%; background: #4caf50; }
 
+  /* landing-page slideshow of annotated animal cutouts */
+  #cutout-strip { display: flex; gap: 8px; margin-top: 14px; }
+  .cutout {
+    flex: 1;
+    aspect-ratio: 1;
+    min-width: 0;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--panel-hover) center / cover no-repeat;
+    cursor: pointer;
+    transition: opacity .5s;
+    opacity: 0;
+  }
+  .cutout:hover { border-color: var(--accent); }
+
   /* Image tiles */
   #content .grid {
     display: grid;
@@ -536,9 +551,75 @@ function onHashChange() {
 /* =============================================================
    Rendering
    ============================================================= */
+/* ----- landing-page slideshow of annotated cutouts ----- */
+let slideTimer = null;
+let slideList = null;
+let slidePos = 0;
+
+function buildCutoutList() {
+  const list = [];
+  for (const f of state.index.folders) {
+    for (const im of f.images) {
+      for (let i = 0; i < (Number(im.ann) || 0); i++) {
+        list.push({ folder: f, name: im.name, i });
+      }
+    }
+  }
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list;
+}
+
+function fillCutoutCell(cell, item) {
+  cell.style.opacity = 0;
+  cell.title = relPath(item.folder, item.name);
+  cell.onclick = () =>
+    location.hash = "/" + relPath(item.folder, item.name).split("/").map(encodeURIComponent).join("/");
+  const show = () => { cell.style.opacity = 1; };
+  if (state.thumbBase) {
+    // published site: CI-cropped cutout from the full-res original
+    cell.style.backgroundImage =
+      `url("cutouts/${encPath(item.folder, item.name)}.${item.i}.jpg")`;
+    cell.style.backgroundSize = "cover";
+    setTimeout(show, 60);
+  } else {
+    // local: CSS-crop the original using the sidecar coordinates
+    fetchRepoAnn(relPath(item.folder, item.name)).then(boxes => {
+      const b = Array.isArray(boxes) ? boxes[item.i] : null;
+      if (!b || !b.w || !b.h) return;
+      cell.style.backgroundImage = `url("${encPath(item.folder, item.name)}")`;
+      cell.style.backgroundSize = `${100 / Math.min(b.w, 1)}% ${100 / Math.min(b.h, 1)}%`;
+      const px = b.w >= 1 ? 0 : (b.x - b.w / 2) / (1 - b.w) * 100;
+      const py = b.h >= 1 ? 0 : (b.y - b.h / 2) / (1 - b.h) * 100;
+      cell.style.backgroundPosition = `${px}% ${py}%`;
+      setTimeout(show, 60);
+    });
+  }
+}
+
+function startSlideshow(strip) {
+  if (!slideList) slideList = buildCutoutList();
+  if (!slideList.length) return;
+  const cells = [];
+  for (let c = 0; c < Math.min(5, slideList.length); c++) {
+    const cell = document.createElement("div");
+    cell.className = "cutout";
+    strip.appendChild(cell);
+    cells.push(cell);
+    fillCutoutCell(cell, slideList[slidePos++ % slideList.length]);
+  }
+  let turn = 0;
+  slideTimer = setInterval(() => {
+    fillCutoutCell(cells[turn++ % cells.length], slideList[slidePos++ % slideList.length]);
+  }, 2500);
+}
+
 function render() {
   renderCrumbs();
   updateDraftInfo();
+  clearInterval(slideTimer);
   const node = state.node;
   if (node.children.size > 0) {
     $("toolbar").hidden = true;
@@ -589,6 +670,7 @@ const INTRO_HTML = `
      to build more interesting detectors.</p>
   <p><strong id="cov-text"></strong></p>
   <div class="prog"><div id="cov-fill" style="width:0%"></div></div>
+  <div id="cutout-strip"></div>
   <p style="margin-top:14px">Pick a year below, then a team and a capture session, to browse the raw images.</p>
   <p>You can help label the data too: open an image, press <strong>A</strong>, and draw
      bounding boxes around animals. Contributions of new capture folders and annotations
@@ -611,6 +693,7 @@ function renderCards(node) {
     if (nDrafts) cov += ` · +${nDrafts} draft${nDrafts > 1 ? "s" : ""} in this browser`;
     intro.querySelector("#cov-text").textContent = cov;
     intro.querySelector("#cov-fill").style.width = pct + "%";
+    startSlideshow(intro.querySelector("#cutout-strip"));
     frag.appendChild(intro);
   }
   const wrap = document.createElement("div");
