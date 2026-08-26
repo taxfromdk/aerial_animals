@@ -768,6 +768,7 @@ function showViewerImage() {
     markLoaded(url);
     syncOverlay();
     renderBoxes();
+    preloadViewerNeighbors();
     if (pendingView) {
       zoom = Math.min(Math.max(pendingView.z, MIN_ZOOM), MAX_ZOOM);
       panX = pendingView.x;
@@ -788,6 +789,23 @@ function showViewerImage() {
   syncOverlay();
   loadAnnotations(folder, image);
   scheduleUrlSync();
+}
+
+/* Warm the cache for the neighboring images once the current one is
+   shown, so Prev/Next feel instant. Goes through the throttled queue. */
+const preloading = new Set();
+function preloadViewerNeighbors() {
+  const folder = state.node.folder;
+  if (!folder || state.viewerIdx < 0) return;
+  const n = folder.images.length;
+  for (const delta of [1, -1]) {
+    const image = folder.images[(state.viewerIdx + delta + n) % n];
+    const url = fullUrl(folder, image.name);
+    if (!loadedSet.has(url) && !preloading.has(url)) {
+      preloading.add(url);
+      queueLoad(url, () => preloading.delete(url), () => preloading.delete(url));
+    }
+  }
 }
 
 function stepViewer(delta) {
