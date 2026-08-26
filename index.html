@@ -154,6 +154,12 @@
     padding: 8px;
   }
   .tile:hover { border-color: var(--accent); }
+  /* annotation status: green = has boxes, blue = reviewed empty,
+     dashed = draft in this browser (not committed yet) */
+  .tile.ann-boxes, .tile.ann-boxes:hover { border: 2px solid #4caf50; }
+  .tile.ann-empty, .tile.ann-empty:hover { border: 2px solid var(--accent); }
+  .tile.ann-draft { border-style: dashed; }
+  .tile.ann-boxes:hover, .tile.ann-empty:hover { filter: brightness(1.15); }
   .tile .icon { font-size: 26px; opacity: .7; }
   .tile .fname { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tile .fsize { font-size: 11px; opacity: .7; }
@@ -325,6 +331,8 @@
   </label>
   <button id="load-page" class="primary">Load previews on this page</button>
   <div class="spacer"></div>
+  <span class="hint">border: <span style="color:#4caf50">green</span> = animals ·
+    <span style="color:var(--accent)">blue</span> = empty · dashed = draft</span>
   <span class="hint" id="draft-info"></span>
   <button id="dl-zip" hidden>Download annotations</button>
   <button id="clear-drafts" hidden>Discard all drafts</button>
@@ -616,14 +624,18 @@ function makeTile(folder, image, absoluteIdx) {
   tile.querySelector(".fsize").textContent = formatSize(image.size);
 
   const draft = drafts[relPath(folder, image.name)];
-  if (draft || image.ann) {
-    const badge = document.createElement("div");
-    badge.className = "badge";
-    badge.textContent = draft
-      ? `✎ ${draft.boxes.length}`
-      : "✓";
-    badge.title = draft ? "draft annotation in this browser" : "annotated in repo";
-    tile.appendChild(badge);
+  if (draft || image.ann !== undefined) {
+    const n = draft ? draft.boxes.length : Number(image.ann);
+    tile.classList.add(n > 0 ? "ann-boxes" : "ann-empty");
+    if (draft) tile.classList.add("ann-draft");
+    tile.title = (n > 0 ? `${n} animal${n > 1 ? "s" : ""}` : "reviewed, empty")
+      + (draft ? " · draft (not committed)" : " · in repo");
+    if (n > 0) {
+      const badge = document.createElement("div");
+      badge.className = "badge";
+      badge.textContent = (draft ? "✎ " : "") + n;
+      tile.appendChild(badge);
+    }
   }
 
   let started = false;

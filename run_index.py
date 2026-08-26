@@ -49,9 +49,16 @@ def scan(root: Path) -> dict:
                     "name": entry.name,
                     "size": entry.stat().st_size,
                 }
-                # annotation sidecar: <image>.json next to the image
-                if entry.with_name(entry.name + ".json").exists():
-                    image["ann"] = True
+                # annotation sidecar: <image>.json next to the image;
+                # store the box count so the gallery can style tiles
+                # (0 = reviewed empty) without fetching every sidecar
+                sidecar = entry.with_name(entry.name + ".json")
+                if sidecar.exists():
+                    try:
+                        boxes = json.loads(sidecar.read_text(encoding="utf-8"))
+                        image["ann"] = len(boxes) if isinstance(boxes, list) else 0
+                    except (ValueError, OSError):
+                        image["ann"] = 0
                 images.append(image)
         # root-level images (banner, site assets) are not part of the dataset
         if images and current != root:
