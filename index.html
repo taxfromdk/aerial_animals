@@ -153,6 +153,27 @@
     opacity: 0;
   }
   .cutout:hover { border-color: var(--accent); }
+  #cutout-preview {
+    position: fixed;
+    z-index: 20;
+    pointer-events: none;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5);
+    display: none;
+  }
+  #cutout-preview .imgwrap { position: relative; }
+  #cutout-preview img { display: block; max-width: 360px; max-height: 260px; border-radius: 6px; }
+  #cutout-preview .mark {
+    position: absolute;
+    border: 2px solid #f0a63a;
+    border-radius: 2px;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.5);
+    display: none;
+  }
+  #cutout-preview .cap { color: var(--text-dim); font-size: 11px; padding: 3px 4px 1px; }
 
   /* Image tiles */
   #content .grid {
@@ -353,6 +374,11 @@
 </div>
 
 <div id="content"></div>
+
+<div id="cutout-preview">
+  <div class="imgwrap"><img alt=""><div class="mark"></div></div>
+  <div class="cap"></div>
+</div>
 
 <div id="viewer">
   <div class="stage">
@@ -572,11 +598,57 @@ function buildCutoutList() {
   return list;
 }
 
+/* floating preview of the whole source image while hovering a cutout */
+let previewToken = 0;
+
+function positionPreview(pv, cell) {
+  const r = cell.getBoundingClientRect();
+  let x = r.left + r.width / 2 - pv.offsetWidth / 2;
+  x = Math.max(8, Math.min(x, innerWidth - pv.offsetWidth - 8));
+  let y = r.bottom + 10;
+  if (y + pv.offsetHeight > innerHeight - 8) y = r.top - pv.offsetHeight - 10;
+  pv.style.left = x + "px";
+  pv.style.top = y + "px";
+}
+
+function showCutoutPreview(cell, item) {
+  const token = ++previewToken;
+  const pv = $("cutout-preview");
+  const img = pv.querySelector("img");
+  const mark = pv.querySelector(".mark");
+  mark.style.display = "none";
+  pv.querySelector(".cap").textContent = relPath(item.folder, item.name);
+  img.src = thumbUrl(item.folder, item.name);
+  pv.style.display = "block";
+  positionPreview(pv, cell);
+  img.onload = () => { if (token === previewToken) positionPreview(pv, cell); };
+  fetchRepoAnn(relPath(item.folder, item.name)).then(boxes => {
+    if (token !== previewToken) return;
+    const b = Array.isArray(boxes) ? boxes[item.i] : null;
+    if (!b || !b.w || !b.h) return;
+    mark.style.display = "block";
+    mark.style.left = (b.x - b.w / 2) * 100 + "%";
+    mark.style.top = (b.y - b.h / 2) * 100 + "%";
+    mark.style.width = b.w * 100 + "%";
+    mark.style.height = b.h * 100 + "%";
+  });
+}
+
+function hideCutoutPreview() {
+  previewToken++;
+  $("cutout-preview").style.display = "none";
+}
+
 function fillCutoutCell(cell, item) {
   cell.style.opacity = 0;
   cell.title = relPath(item.folder, item.name);
-  cell.onclick = () =>
+  cell.onclick = () => {
+    hideCutoutPreview();
     location.hash = "/" + relPath(item.folder, item.name).split("/").map(encodeURIComponent).join("/");
+  };
+  cell.onmouseenter = () => showCutoutPreview(cell, item);
+  cell.onmouseleave = hideCutoutPreview;
+  if (cell.matches(":hover")) showCutoutPreview(cell, item);
   const show = () => { cell.style.opacity = 1; };
   if (state.thumbBase) {
     // published site: CI-cropped cutout from the full-res original
