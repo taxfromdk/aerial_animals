@@ -69,9 +69,11 @@ directly and thumbnails are never needed.
 ## Annotations
 
 Images can be annotated with bounding boxes directly in the gallery — no
-tools to install. Open an image and simply drag to draw a box. Click a box
-(or its chip in the bar below the image) to select it, **Delete** removes
-it, and *Mark empty* records "reviewed, nothing in this image". When zoomed
+tools to install. Open an image and simply drag to draw a box — crosshair
+guide lines follow the cursor to make sizing easy. Drag an existing box to
+reposition it. Click a box (or its chip in the bar below the image) to
+select it, **Delete** removes it, and *Mark empty* records "reviewed,
+nothing in this image" and jumps straight to the next image. When zoomed
 in, **Shift+drag** (or the arrow keys) pans; plain drag always draws. Boxes
 are always rendered live from the annotation data as an overlay — never
 baked into the images or thumbnails.

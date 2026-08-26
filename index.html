@@ -338,7 +338,7 @@
     <span id="ann-status">none</span>
     <span id="ann-chips"></span>
     <span class="spacer" style="flex:1"></span>
-    <span id="ann-hint">drag on the image to draw a box · click a box to select · Del removes</span>
+    <span id="ann-hint">drag to draw a box · drag a box to move it · Del removes selected</span>
     <button id="v-empty">Mark empty</button>
     <button id="v-discard" hidden>Discard draft</button>
   </div>
@@ -999,6 +999,8 @@ function renderBoxes(rubber) {
     r.setAttribute("pointer-events", "none");
     vOverlay.appendChild(r);
   }
+  vOverlay.appendChild(guideH);   // guides survive re-renders, on top
+  vOverlay.appendChild(guideV);
   updateAnnStatus();
 }
 
@@ -1043,9 +1045,43 @@ function deleteSelected() {
   commitBoxes();
 }
 
-/* ----- drawing (implicit: drag always draws; Shift/middle drag pans) ----- */
+/* ----- drawing (implicit: drag always draws; Shift/middle drag pans;
+       dragging an existing box moves it) ----- */
 let drawing = null;
 let panDrag = null;
+let moveDrag = null;
+
+/* crosshair guide lines following the cursor, for easy box dimensioning */
+const guideH = document.createElementNS(SVGNS, "line");
+const guideV = document.createElementNS(SVGNS, "line");
+for (const g of [guideH, guideV]) {
+  g.setAttribute("stroke", "rgba(255,255,255,.5)");
+  g.setAttribute("stroke-width", 1);
+  g.setAttribute("vector-effect", "non-scaling-stroke");
+  g.setAttribute("pointer-events", "none");
+  g.style.display = "none";
+}
+
+function updateGuides(nx, ny) {
+  const W = vImg.naturalWidth || 1, H = vImg.naturalHeight || 1;
+  guideH.setAttribute("x1", 0);
+  guideH.setAttribute("x2", W);
+  guideH.setAttribute("y1", ny * H);
+  guideH.setAttribute("y2", ny * H);
+  guideV.setAttribute("x1", nx * W);
+  guideV.setAttribute("x2", nx * W);
+  guideV.setAttribute("y1", 0);
+  guideV.setAttribute("y2", H);
+  guideH.style.display = guideV.style.display = "";
+}
+
+function hitBox(nx, ny) {
+  for (let i = (viewerBoxes || []).length - 1; i >= 0; i--) {
+    const b = viewerBoxes[i];
+    if (Math.abs(nx - b.x) <= b.w / 2 && Math.abs(ny - b.y) <= b.h / 2) return i;
+  }
+  return -1;
+}
 
 function overlayNorm(e) {
   const r = vOverlay.getBoundingClientRect();
@@ -1068,10 +1104,20 @@ vOverlay.addEventListener("pointerdown", e => {
   }
   if (e.button !== 0) return;
   const [nx, ny] = overlayNorm(e);
-  drawing = { x0: nx, y0: ny, x1: nx, y1: ny, sx: e.clientX, sy: e.clientY };
+  const hit = hitBox(nx, ny);
+  if (hit >= 0) {
+    // drag an existing box to move it
+    selectedBox = hit;
+    moveDrag = { i: hit, lx: nx, ly: ny, moved: false, sx: e.clientX, sy: e.clientY };
+    renderBoxes();
+  } else {
+    drawing = { x0: nx, y0: ny, x1: nx, y1: ny, sx: e.clientX, sy: e.clientY };
+  }
   vOverlay.setPointerCapture(e.pointerId);
 });
 vOverlay.addEventListener("pointermove", e => {
+  const [nx, ny] = overlayNorm(e);
+  updateGuides(nx, ny);
   if (panDrag) {
     panX += e.clientX - panDrag.x;
     panY += e.clientY - panDrag.y;
@@ -1080,14 +1126,34 @@ vOverlay.addEventListener("pointermove", e => {
     applyTransform();
     return;
   }
+  if (moveDrag) {
+    const b = viewerBoxes[moveDrag.i];
+    b.x = Math.min(Math.max(b.x + nx - moveDrag.lx, b.w / 2), 1 - b.w / 2);
+    b.y = Math.min(Math.max(b.y + ny - moveDrag.ly, b.h / 2), 1 - b.h / 2);
+    moveDrag.lx = nx;
+    moveDrag.ly = ny;
+    if (Math.hypot(e.clientX - moveDrag.sx, e.clientY - moveDrag.sy) > 3) moveDrag.moved = true;
+    renderBoxes();
+    return;
+  }
   if (!drawing) return;
   [drawing.x1, drawing.y1] = overlayNorm(e);
   renderBoxes(drawing);
+});
+vOverlay.addEventListener("pointerleave", () => {
+  guideH.style.display = guideV.style.display = "none";
 });
 vOverlay.addEventListener("pointerup", e => {
   if (panDrag) {
     panDrag = null;
     vOverlay.releasePointerCapture(e.pointerId);
+    return;
+  }
+  if (moveDrag) {
+    const wasMoved = moveDrag.moved;
+    moveDrag = null;
+    vOverlay.releasePointerCapture(e.pointerId);
+    if (wasMoved) commitBoxes();     // one save per completed move
     return;
   }
   if (!drawing) return;
@@ -1104,15 +1170,7 @@ vOverlay.addEventListener("pointerup", e => {
     selectedBox = viewerBoxes.length - 1;
     commitBoxes();
   } else {
-    const [nx, ny] = overlayNorm(e);
-    selectedBox = -1;
-    for (let i = (viewerBoxes || []).length - 1; i >= 0; i--) {
-      const b = viewerBoxes[i];
-      if (Math.abs(nx - b.x) <= b.w / 2 && Math.abs(ny - b.y) <= b.h / 2) {
-        selectedBox = i;
-        break;
-      }
-    }
+    selectedBox = -1;   // clicked empty space: deselect
     renderBoxes();
   }
 });
@@ -1123,6 +1181,7 @@ $("v-empty").onclick = () => {
   viewerBoxes = [];
   selectedBox = -1;
   commitBoxes();
+  stepViewer(1);          // review flow: empty → straight to the next image
 };
 $("v-discard").onclick = () => {
   if (state.viewerIdx < 0) return;
