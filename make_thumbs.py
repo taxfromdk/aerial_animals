@@ -5,13 +5,16 @@ Usage:
     python3 make_thumbs.py [output_dir]     # default: _site
 
 Writes <output_dir>/thumbs/<folder>/<image>.jpg, aiming for ~20 KB each,
-mirroring the dataset folder structure. Used by the GitHub Pages workflow;
-not needed for local browsing (the local gallery shows the originals).
+mirroring the dataset folder structure, and copies annotation sidecars
+(<image>.json) into <output_dir>/<folder>/ so the published gallery can
+show them. Used by the GitHub Pages workflow; not needed for local
+browsing (the local gallery shows the originals).
 
 Requires Pillow (the one non-stdlib dependency, CI-only).
 """
 
 import io
+import shutil
 import sys
 from pathlib import Path
 
@@ -60,6 +63,11 @@ def main():
             else:
                 total_bytes += make_thumb(src, dst)
             count += 1
+            ann = src_dir / (image["name"] + ".json")
+            if ann.exists():
+                ann_dst = out / folder["path"] / ann.name
+                ann_dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ann, ann_dst)
     print(f"thumbs: {count} images, {total_bytes / 1048576:.1f} MB total -> {out / 'thumbs'}")
 
 

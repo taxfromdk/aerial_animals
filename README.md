@@ -66,6 +66,47 @@ the full-resolution original straight from the git repository via
 `raw.githubusercontent.com`. Locally, the gallery serves your actual files
 directly and thumbnails are never needed.
 
+## Annotations
+
+Images can be annotated with bounding boxes directly in the gallery — no
+tools to install. Open an image, press **A** (or the *Annotate* button),
+and drag to draw a box. Click a box to select it, **Delete** removes it,
+and *Mark empty* records "reviewed, nothing in this image". Boxes are always
+rendered live from the annotation data as an overlay — never baked into the
+images or thumbnails.
+
+Edits are saved instantly as drafts in your browser (localStorage). To get
+them into the shared dataset:
+
+1. Click **Download annotations** in the folder toolbar — you get
+   `annotations.zip` whose folder structure mirrors this repository.
+2. Unzip it at the repository root so each `<image>.json` lands next to its
+   image.
+3. Commit and push, or open a pull request.
+
+The next deploy publishes them, and the gallery then shows them to everyone
+(your own browser prefers your local draft over the repo version while a
+draft exists — use *Discard draft* to go back to the committed state).
+
+The format is one JSON file per image, named `<image>.json` next to the
+image: a list of YOLO-style normalized boxes, where `x`/`y` is the box
+center and all values are fractions of the image size:
+
+    [
+     {"label": "animal", "x": 0.512, "y": 0.401, "w": 0.113, "h": 0.208}
+    ]
+
+An empty list `[]` means the image was reviewed and contains no animals —
+which is just as valuable as a box. There is a single class `animal` for
+now; the label is stored by name, so more classes can be added later (in
+`CLASSES` in `index.html`) without invalidating existing files.
+
+To test annotations locally without committing anything: run
+`python3 run_index.py --serve`, annotate in the browser (drafts live in
+localStorage and survive reloads), download the zip, unzip it at the repo
+root, and restart `--serve` — the index picks up the sidecar files and the
+gallery now shows them as repo annotations.
+
 ## License
 
 The contents of this repository are shared under

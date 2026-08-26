@@ -250,6 +250,34 @@
   }
   #viewer .bar .title { color: var(--text); }
   #viewer .bar .spacer { flex: 1; }
+
+  /* ---------- Annotation ---------- */
+  #v-overlay { position: absolute; overflow: visible; pointer-events: none; }
+  #viewer.editing #v-overlay { pointer-events: auto; cursor: crosshair; }
+  #viewer.editing .navzone { display: none; }
+  #ann-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px 0;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  #ann-bar button.active { border-color: var(--accent); color: var(--accent); }
+  .classbtn { display: inline-flex; align-items: center; gap: 6px; }
+  .classbtn .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .classbtn.selected { outline: 2px solid var(--accent); }
+  .tile .badge {
+    position: absolute;
+    top: 6px; right: 6px;
+    z-index: 2;
+    background: rgba(0,0,0,.65);
+    color: #fff;
+    font-size: 11px;
+    padding: 1px 8px;
+    border-radius: 10px;
+  }
 </style>
 </head>
 <body>
@@ -274,6 +302,9 @@
   </label>
   <button id="load-page" class="primary">Load previews on this page</button>
   <div class="spacer"></div>
+  <span class="hint" id="draft-info"></span>
+  <button id="dl-zip" hidden>Download annotations</button>
+  <button id="clear-drafts" hidden>Discard all drafts</button>
   <span class="hint">Hover a tile to load its preview · click to view full size</span>
 </div>
 
@@ -283,9 +314,19 @@
   <div class="stage">
     <div class="spinner"></div>
     <img id="v-img" alt="">
+    <svg id="v-overlay" xmlns="http://www.w3.org/2000/svg"></svg>
   </div>
   <div id="nav-prev" class="navzone">‹</div>
   <div id="nav-next" class="navzone">›</div>
+  <div id="ann-bar">
+    <button id="v-annotate">Annotate (A)</button>
+    <span id="class-buttons"></span>
+    <button id="v-empty">Mark empty</button>
+    <button id="v-discard" hidden>Discard draft</button>
+    <span id="ann-status"></span>
+    <span class="spacer" style="flex:1"></span>
+    <span id="ann-hint"></span>
+  </div>
   <div class="bar">
     <span class="title" id="v-title"></span>
     <span id="v-pos"></span>
@@ -493,7 +534,9 @@ const INTRO_HTML = `
      to build more interesting detectors.</p>
   <p>Pick a year below, then a team and a capture session, to browse the raw images.
      Previews load only when you hover them, so feel free to explore.</p>
-  <p>Contributions of new capture folders are welcome — see the
+  <p>You can help label the data too: open an image, press <strong>A</strong>, and draw
+     bounding boxes around animals. Contributions of new capture folders and annotations
+     are welcome — see the
      <a href="https://github.com/taxfromdk/aerial_animals" style="color:var(--accent)">repository</a>
      for how.</p>
   </div>`;
@@ -547,6 +590,17 @@ function makeTile(folder, image, absoluteIdx) {
     <div class="hover-hint">hover to preview</div>`;
   tile.querySelector(".fname").textContent = image.name;
   tile.querySelector(".fsize").textContent = formatSize(image.size);
+
+  const draft = drafts[relPath(folder, image.name)];
+  if (draft || image.ann) {
+    const badge = document.createElement("div");
+    badge.className = "badge";
+    badge.textContent = draft
+      ? `✎ ${draft.boxes.length}`
+      : "✓";
+    badge.title = draft ? "draft annotation in this browser" : "annotated in repo";
+    tile.appendChild(badge);
+  }
 
   let started = false;
   const startLoad = () => {
@@ -668,9 +722,11 @@ function closeViewer() {
   resetZoom();
   $("viewer").classList.remove("open");
   vImg.removeAttribute("src");
+  syncOverlay();
   if (wasOpen) {
     history.replaceState(null, "",
       "#/" + state.node.path.map(encodeURIComponent).join("/"));
+    if (state.node.folder) renderGrid(state.node.folder);   // refresh badges
   }
 }
 
@@ -684,6 +740,8 @@ function showViewerImage() {
   vImg.onload = () => {
     $("viewer").classList.remove("busy");
     markLoaded(url);
+    syncOverlay();
+    renderBoxes();
     if (pendingView) {
       zoom = Math.min(Math.max(pendingView.z, MIN_ZOOM), MAX_ZOOM);
       panX = pendingView.x;
@@ -701,6 +759,8 @@ function showViewerImage() {
   $("v-orig").href = url;
   $("v-title").textContent = (folder.path ? folder.path + "/" : "") + image.name;
   $("v-pos").textContent = `${state.viewerIdx + 1} / ${folder.images.length} · ${formatSize(image.size)}`;
+  syncOverlay();
+  loadAnnotations(folder, image);
   scheduleUrlSync();
 }
 
@@ -721,6 +781,7 @@ function applyTransform() {
   vImg.style.transform = zoom === 1 ? "" : `translate(${panX}px, ${panY}px) scale(${zoom})`;
   $("viewer").classList.toggle("zoomed", zoom > 1);
   $("v-zoom").textContent = zoom > 1 ? `${zoom.toFixed(1)}×` : "";
+  syncOverlay();
   scheduleUrlSync();
   $("v-hint").textContent = zoom > 1
     ? "drag/arrows pan · scroll zoom · 0 fit · PgUp PgDn navigate · Esc fit"
@@ -785,6 +846,366 @@ vImg.addEventListener("pointerup", e => {
   vImg.releasePointerCapture(e.pointerId);
 });
 
+/* =============================================================
+   Annotations — YOLO-style normalized boxes (x/y = center).
+   Committed truth: <image>.json sidecar files in the repo.
+   Working copy: localStorage drafts, exported as a zip whose
+   folder structure mirrors the repo for easy merging.
+   ============================================================= */
+/* Single class for now; add entries here to extend (labels are stored
+   by name in the JSON, so old annotations stay valid). */
+const CLASSES = [
+  { name: "animal", color: "#f0a63a" },
+];
+const SVGNS = "http://www.w3.org/2000/svg";
+const vOverlay = $("v-overlay");
+
+let annotateMode = false;
+let currentClass = 0;
+let selectedBox = -1;
+let viewerBoxes = null;    // working copy for the open image (null = not annotated)
+let viewerSource = null;   // 'draft' | 'repo' | null
+let annLoadToken = 0;
+
+const DRAFTS_KEY = "gallery-ann-drafts-v1";
+const drafts = JSON.parse(localStorage.getItem(DRAFTS_KEY) || "{}");
+
+function relPath(folder, name) {
+  return (folder.path ? folder.path + "/" : "") + name;
+}
+
+function saveDrafts() {
+  localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+  updateDraftInfo();
+}
+
+function updateDraftInfo() {
+  const n = Object.keys(drafts).length;
+  $("draft-info").textContent =
+    n ? `${n} draft annotation file${n > 1 ? "s" : ""} in this browser` : "";
+  $("dl-zip").hidden = !n;
+  $("clear-drafts").hidden = !n;
+}
+
+const repoAnnCache = new Map();
+async function fetchRepoAnn(rp) {
+  if (repoAnnCache.has(rp)) return repoAnnCache.get(rp);
+  let val = null;
+  try {
+    const r = await fetch(rp.split("/").map(encodeURIComponent).join("/") + ".json",
+                          { cache: "no-store" });
+    if (r.ok) val = await r.json();
+  } catch { /* treated as unannotated */ }
+  repoAnnCache.set(rp, val);
+  return val;
+}
+
+async function loadAnnotations(folder, image) {
+  const token = ++annLoadToken;
+  const rp = relPath(folder, image.name);
+  selectedBox = -1;
+  const draft = drafts[rp];
+  if (draft) {
+    viewerBoxes = JSON.parse(JSON.stringify(draft.boxes));
+    viewerSource = "draft";
+    renderBoxes();
+    return;
+  }
+  viewerBoxes = null;
+  viewerSource = null;
+  renderBoxes();
+  if (!image.ann) return;
+  const repo = await fetchRepoAnn(rp);
+  if (token !== annLoadToken) return;      // user moved to another image
+  if (Array.isArray(repo)) {
+    viewerBoxes = JSON.parse(JSON.stringify(repo));
+    viewerSource = "repo";
+  }
+  renderBoxes();
+}
+
+function commitBoxes() {
+  const folder = state.node.folder;
+  const image = folder.images[state.viewerIdx];
+  const rounded = viewerBoxes.map(b => ({
+    label: b.label,
+    x: +b.x.toFixed(4), y: +b.y.toFixed(4),
+    w: +b.w.toFixed(4), h: +b.h.toFixed(4),
+  }));
+  drafts[relPath(folder, image.name)] = { boxes: rounded, t: Date.now() };
+  viewerBoxes = rounded;
+  viewerSource = "draft";
+  saveDrafts();
+  renderBoxes();
+}
+
+/* Overlay tracks the (possibly zoomed/panned) image exactly */
+function syncOverlay() {
+  if (state.viewerIdx < 0 || !vImg.naturalWidth || !vImg.getAttribute("src")) {
+    vOverlay.style.display = "none";
+    return;
+  }
+  const sr = vStage.getBoundingClientRect();
+  const ir = vImg.getBoundingClientRect();
+  vOverlay.style.display = "";
+  vOverlay.style.left = (ir.left - sr.left) + "px";
+  vOverlay.style.top = (ir.top - sr.top) + "px";
+  vOverlay.style.width = ir.width + "px";
+  vOverlay.style.height = ir.height + "px";
+  vOverlay.setAttribute("viewBox", `0 0 ${vImg.naturalWidth} ${vImg.naturalHeight}`);
+  vOverlay.setAttribute("preserveAspectRatio", "none");
+}
+
+function renderBoxes(rubber) {
+  while (vOverlay.firstChild) vOverlay.removeChild(vOverlay.firstChild);
+  const W = vImg.naturalWidth || 1, H = vImg.naturalHeight || 1;
+  (viewerBoxes || []).forEach((b, i) => {
+    const cls = CLASSES.find(c => c.name === b.label) || CLASSES[0];
+    const r = document.createElementNS(SVGNS, "rect");
+    r.setAttribute("x", (b.x - b.w / 2) * W);
+    r.setAttribute("y", (b.y - b.h / 2) * H);
+    r.setAttribute("width", b.w * W);
+    r.setAttribute("height", b.h * H);
+    r.setAttribute("fill", cls.color);
+    r.setAttribute("fill-opacity", i === selectedBox ? "0.25" : "0.08");
+    r.setAttribute("stroke", cls.color);
+    r.setAttribute("stroke-width", i === selectedBox ? 3 : 2);
+    r.setAttribute("vector-effect", "non-scaling-stroke");
+    r.setAttribute("pointer-events", "none");
+    vOverlay.appendChild(r);
+    const t = document.createElementNS(SVGNS, "text");
+    t.setAttribute("x", (b.x - b.w / 2) * W);
+    t.setAttribute("y", (b.y - b.h / 2) * H - H * 0.006);
+    t.setAttribute("font-size", H * 0.022);
+    t.setAttribute("fill", cls.color);
+    t.setAttribute("pointer-events", "none");
+    t.textContent = b.label;
+    vOverlay.appendChild(t);
+  });
+  if (rubber) {
+    const r = document.createElementNS(SVGNS, "rect");
+    r.setAttribute("x", Math.min(rubber.x0, rubber.x1) * W);
+    r.setAttribute("y", Math.min(rubber.y0, rubber.y1) * H);
+    r.setAttribute("width", Math.abs(rubber.x1 - rubber.x0) * W);
+    r.setAttribute("height", Math.abs(rubber.y1 - rubber.y0) * H);
+    r.setAttribute("fill", "none");
+    r.setAttribute("stroke", CLASSES[currentClass].color);
+    r.setAttribute("stroke-width", 2);
+    r.setAttribute("stroke-dasharray", "6 4");
+    r.setAttribute("vector-effect", "non-scaling-stroke");
+    r.setAttribute("pointer-events", "none");
+    vOverlay.appendChild(r);
+  }
+  updateAnnStatus();
+}
+
+function updateAnnStatus() {
+  let s;
+  if (viewerBoxes === null) {
+    s = "not annotated";
+  } else {
+    const n = viewerBoxes.length;
+    s = n === 0 ? "marked empty" : `${n} box${n === 1 ? "" : "es"}`;
+    s += ` · ${viewerSource}`;
+  }
+  $("ann-status").textContent = s;
+  $("v-discard").hidden = viewerSource !== "draft";
+  $("ann-hint").textContent = annotateMode
+    ? "drag to draw · click box to select · Del removes"
+    : "";
+}
+
+function toggleAnnotate() {
+  annotateMode = !annotateMode;
+  $("viewer").classList.toggle("editing", annotateMode);
+  $("v-annotate").classList.toggle("active", annotateMode);
+  if (!annotateMode) { selectedBox = -1; renderBoxes(); }
+  updateAnnStatus();
+}
+
+function setClass(i) {
+  currentClass = i;
+  document.querySelectorAll(".classbtn").forEach((b, j) =>
+    b.classList.toggle("selected", j === i));
+  if (selectedBox >= 0 && viewerBoxes) {
+    viewerBoxes[selectedBox].label = CLASSES[i].name;
+    commitBoxes();
+  }
+}
+
+function deleteSelected() {
+  if (selectedBox < 0 || !viewerBoxes) return;
+  viewerBoxes.splice(selectedBox, 1);
+  selectedBox = -1;
+  commitBoxes();
+}
+
+/* ----- drawing ----- */
+let drawing = null;
+
+function overlayNorm(e) {
+  const r = vOverlay.getBoundingClientRect();
+  return [
+    Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1),
+    Math.min(Math.max((e.clientY - r.top) / r.height, 0), 1),
+  ];
+}
+
+vOverlay.addEventListener("pointerdown", e => {
+  if (!annotateMode || state.viewerIdx < 0) return;
+  e.stopPropagation();
+  const [nx, ny] = overlayNorm(e);
+  drawing = { x0: nx, y0: ny, x1: nx, y1: ny, sx: e.clientX, sy: e.clientY };
+  vOverlay.setPointerCapture(e.pointerId);
+});
+vOverlay.addEventListener("pointermove", e => {
+  if (!drawing) return;
+  [drawing.x1, drawing.y1] = overlayNorm(e);
+  renderBoxes(drawing);
+});
+vOverlay.addEventListener("pointerup", e => {
+  if (!drawing) return;
+  vOverlay.releasePointerCapture(e.pointerId);
+  const d = drawing;
+  drawing = null;
+  if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 5) {
+    if (!viewerBoxes) viewerBoxes = [];
+    viewerBoxes.push({
+      label: CLASSES[currentClass].name,
+      x: (d.x0 + d.x1) / 2, y: (d.y0 + d.y1) / 2,
+      w: Math.abs(d.x1 - d.x0), h: Math.abs(d.y1 - d.y0),
+    });
+    selectedBox = viewerBoxes.length - 1;
+    commitBoxes();
+  } else {
+    const [nx, ny] = overlayNorm(e);
+    selectedBox = -1;
+    for (let i = (viewerBoxes || []).length - 1; i >= 0; i--) {
+      const b = viewerBoxes[i];
+      if (Math.abs(nx - b.x) <= b.w / 2 && Math.abs(ny - b.y) <= b.h / 2) {
+        selectedBox = i;
+        break;
+      }
+    }
+    renderBoxes();
+  }
+});
+
+/* ----- controls ----- */
+$("v-annotate").onclick = toggleAnnotate;
+$("v-empty").onclick = () => {
+  if (state.viewerIdx < 0) return;
+  viewerBoxes = [];
+  selectedBox = -1;
+  commitBoxes();
+};
+$("v-discard").onclick = () => {
+  if (state.viewerIdx < 0) return;
+  const folder = state.node.folder;
+  const image = folder.images[state.viewerIdx];
+  delete drafts[relPath(folder, image.name)];
+  saveDrafts();
+  loadAnnotations(folder, image);
+};
+CLASSES.forEach((c, i) => {
+  const b = document.createElement("button");
+  b.className = "classbtn" + (i === 0 ? " selected" : "");
+  b.innerHTML = `<span class="dot"></span>${c.name}`;
+  b.querySelector(".dot").style.background = c.color;
+  b.onclick = () => setClass(i);
+  $("class-buttons").appendChild(b);
+});
+
+/* ----- zip export (STORE format, no dependencies) ----- */
+/* ZIP-LIB-START */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(data) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < data.length; i++) c = CRC_TABLE[(c ^ data[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+function makeZip(entries) {
+  const enc = new TextEncoder();
+  const parts = [], central = [];
+  let offset = 0;
+  const now = new Date();
+  const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  for (const e of entries) {
+    const name = enc.encode(e.name);
+    const crc = crc32(e.data);
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true);
+    lh.setUint16(4, 20, true);
+    lh.setUint16(6, 0x0800, true);
+    lh.setUint16(10, dosTime, true);
+    lh.setUint16(12, dosDate, true);
+    lh.setUint32(14, crc, true);
+    lh.setUint32(18, e.data.length, true);
+    lh.setUint32(22, e.data.length, true);
+    lh.setUint16(26, name.length, true);
+    parts.push(new Uint8Array(lh.buffer), name, e.data);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true);
+    ch.setUint16(4, 20, true);
+    ch.setUint16(6, 20, true);
+    ch.setUint16(8, 0x0800, true);
+    ch.setUint16(12, dosTime, true);
+    ch.setUint16(14, dosDate, true);
+    ch.setUint32(16, crc, true);
+    ch.setUint32(20, e.data.length, true);
+    ch.setUint32(24, e.data.length, true);
+    ch.setUint16(28, name.length, true);
+    ch.setUint32(42, offset, true);
+    central.push(new Uint8Array(ch.buffer), name);
+    offset += 30 + name.length + e.data.length;
+  }
+  let cdSize = 0;
+  for (const p of central) cdSize += p.length;
+  const eocd = new DataView(new ArrayBuffer(22));
+  eocd.setUint32(0, 0x06054b50, true);
+  eocd.setUint16(8, entries.length, true);
+  eocd.setUint16(10, entries.length, true);
+  eocd.setUint32(12, cdSize, true);
+  eocd.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, new Uint8Array(eocd.buffer)],
+                  { type: "application/zip" });
+}
+/* ZIP-LIB-END */
+
+$("dl-zip").onclick = () => {
+  const enc = new TextEncoder();
+  const entries = Object.keys(drafts).sort().map(rp => ({
+    name: rp + ".json",
+    data: enc.encode(JSON.stringify(drafts[rp].boxes, null, 1) + "\n"),
+  }));
+  if (!entries.length) return;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(makeZip(entries));
+  a.download = "annotations.zip";
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+$("clear-drafts").onclick = () => {
+  if (!confirm("Discard ALL draft annotations stored in this browser? Committed files are unaffected.")) return;
+  for (const k of Object.keys(drafts)) delete drafts[k];
+  saveDrafts();
+  if (state.node && state.node.folder) renderGrid(state.node.folder);
+};
+
+window.addEventListener("resize", syncOverlay);
+
 $("v-share").onclick = async () => {
   if (state.viewerIdx < 0) return;
   history.replaceState(null, "", viewerHash());   // make sure zoom state is current
@@ -801,13 +1222,22 @@ $("v-share").onclick = async () => {
 $("v-close").onclick = closeViewer;
 $("nav-prev").onclick = () => stepViewer(-1);
 $("nav-next").onclick = () => stepViewer(1);
-vStage.onclick = e => { if (e.target !== vImg) closeViewer(); };
+vStage.onclick = e => {
+  if (e.target !== vImg && !e.target.closest("#v-overlay")) closeViewer();
+};
 
 /* =============================================================
    Keyboard
    ============================================================= */
 document.addEventListener("keydown", e => {
   if (state.viewerIdx >= 0) {
+    if (e.key === "a" || e.key === "A") return toggleAnnotate();
+    if (annotateMode) {
+      const ci = parseInt(e.key, 10) - 1;
+      if (ci >= 0 && ci < CLASSES.length) return setClass(ci);
+      if (e.key === "Delete" || e.key === "Backspace") return deleteSelected();
+      if (e.key === "Escape") return toggleAnnotate();
+    }
     if (e.key === "+" || e.key === "=") return setZoom(zoom * 1.25);
     if (e.key === "-") return setZoom(zoom * 0.8);
     if (e.key === "0") return resetZoom();
@@ -857,6 +1287,7 @@ fetch("index.json", { cache: "no-store" })
     const generated = new Date(index.generated).toLocaleString();
     $("stats").textContent =
       `${index.total_images} images · ${index.total_folders} folders · indexed ${generated}`;
+    updateDraftInfo();
     window.addEventListener("hashchange", onHashChange);
     onHashChange();
   })

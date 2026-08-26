@@ -45,10 +45,14 @@ def scan(root: Path) -> dict:
                 if entry.name not in SKIP_DIRS and not entry.name.startswith("."):
                     dirs.append(entry)
             elif entry.suffix.lower() in IMAGE_EXTENSIONS:
-                images.append({
+                image = {
                     "name": entry.name,
                     "size": entry.stat().st_size,
-                })
+                }
+                # annotation sidecar: <image>.json next to the image
+                if entry.with_name(entry.name + ".json").exists():
+                    image["ann"] = True
+                images.append(image)
         # root-level images (banner, site assets) are not part of the dataset
         if images and current != root:
             folders.append({
