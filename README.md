@@ -70,24 +70,32 @@ directly and thumbnails are never needed.
 
 ## Annotations
 
-Images can be annotated with bounding boxes directly in the gallery — no
-tools to install. Open an image and simply drag to draw a box — crosshair
-guide lines follow the cursor to make sizing easy. Drag an existing box to
-reposition it. Click a box (or its chip in the bar below the image) to
-select it — corner handles then appear for resizing — and **Delete**
-removes it. *Mark empty* — or just pressing
-**Space** — records "reviewed, nothing in this image" and jumps straight to
-the next image, so sweeping a mostly-empty folder is one keypress per
-frame. Navigate with the **Prev/Next** buttons or arrow keys; neighboring
-images are preloaded so stepping is instant. When zoomed in, **Shift+drag**
-(or the arrow keys) pans; plain drag always draws. Boxes
-are always rendered live from the annotation data as an overlay — never
-baked into the images or thumbnails.
+Annotate directly in the gallery — no tools to install, no mode to enter.
+Boxes are always rendered live from the annotation data as an overlay,
+never baked into the images or thumbnails.
 
-In the folder grid, tile borders show annotation status: green = has boxes,
-blue = reviewed empty, dashed = browser draft not yet committed, and a
-thick dashed border means your draft will overwrite an existing committed
-file when merged.
+In the viewer:
+
+- **Draw** — drag anywhere on the image; crosshair guide lines follow the
+  cursor to make sizing easy.
+- **Move** — drag an existing box.
+- **Resize** — click a box to select it, then drag its corner handles.
+- **Delete** — select a box (on the image or via its chip below) and press
+  **Delete**, or click the chip's ✕.
+- **Mark empty** — the button or **Space** records "reviewed, nothing in
+  this image" and jumps to the next one, so sweeping a mostly-empty folder
+  is one keypress per frame.
+- **Navigate** — Prev/Next buttons or arrow keys; neighboring images are
+  preloaded so stepping is instant.
+- **Zoom** — scroll wheel or double-click; pan with **Shift+drag** or the
+  arrow keys (plain drag always draws).
+
+The bar below the image always shows the current annotation: `none`, the
+box count, or `empty (reviewed)`, along with whether it comes from the
+repo or is a local draft. In the folder grid, tile borders show the same
+at a glance: **green** = has boxes, **blue** = reviewed empty,
+**dashed** = draft only in your browser, **thick dashed** = your draft
+will overwrite a committed file.
 
 Edits are saved instantly as drafts in your browser (localStorage). To get
 them into the shared dataset:
